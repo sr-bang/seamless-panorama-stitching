@@ -23,7 +23,7 @@ import torchvision
 from torch.utils.tensorboard import SummaryWriter
 from torchvision import datasets, transforms
 from torch.optim import Adam
-from Network.Network_sup import HomographyModel, LossFn
+from Network.Network import HomographyModel, LossFn
 import cv2
 import sys
 import os
@@ -89,14 +89,16 @@ def GenerateBatch(BasePath, DirNamesTrain, MiniBatchSize):
         y1 = int((I1.shape[0] - 150) * random.random()) + 10
         y2 = y1 + 128
 
-        pts = np.array([[x1, y1],[x2, y1],[x2, y2], [x1, y2]], np.float32)
+        Ca = np.array([[x1, y1],[x2, y1],[x2, y2], [x1, y2]], np.float32)
 
         h4pt = []
         for _ in range(4):
             h4pt.append([int((random.random()*20)-10), int((random.random()*20)-10)])
         h4pt = np.array(h4pt, np.float32)
 
-        Hab = cv2.getPerspectiveTransform(pts, pts+h4pt)
+        Cb = Ca + h4pt
+
+        Hab = cv2.getPerspectiveTransform(Ca, Cb)
         Hba = np.linalg.inv(Hab)
         out = cv2.warpPerspective(I1, Hba, (700, 700))
 
@@ -108,6 +110,8 @@ def GenerateBatch(BasePath, DirNamesTrain, MiniBatchSize):
         # Append All Images and Mask
         I1Batch.append(torch.from_numpy(f_img))
         CoordinatesBatch.append(torch.tensor(h4pt.flatten()))
+
+        # print(torch.stack(I1Batch).size())
 
     return torch.stack(I1Batch).to(device), torch.stack(CoordinatesBatch).to(device)
 
