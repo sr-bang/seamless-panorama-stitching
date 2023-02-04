@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 from random import random
 import torch
+from torchvision import transforms
 from Network.Network import dlt
 
 def stack_A(u, v, up, vp):
@@ -12,7 +13,7 @@ def stack_A(u, v, up, vp):
     return arr
 
 img = cv2.imread('/home/takud/Downloads/WPI_Homework/RBE549/rmnagwekar_p1/Phase2/Data/Train/1.jpg')
-# img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 x1 = int((img.shape[1] - 150) * random()) + 10
 x2 = x1 + 128
 y1 = int((img.shape[0] - 150) * random()) + 10
@@ -28,15 +29,31 @@ h4pt = np.array(h4pt, np.float32)
 Cb = Ca + h4pt
 
 Hab = cv2.getPerspectiveTransform(Ca, Cb)
-Hba = np.linalg.inv(Hab)
+Hba = np.linalg.pinv(Hab)
 out = cv2.warpPerspective(img, Hba, (700, 700))
 
-print(Hab)
+# print(Hab)
 
 Pa = img[y1:y2, x1:x2]
 Pb = out[y1:y2, x1:x2]
 
 f_img = np.dstack((Pa, Pb))
+f_img = torch.from_numpy(f_img).type(torch.DoubleTensor)
+f_img = f_img.view(torch.Size([2, 128, 128]))
+
+# print(f_img.shape)
+mean, std = f_img.mean([1, 2]), f_img.std([1, 2])
+print(mean, std)
+
+transform_norm = transforms.Compose([
+    transforms.Normalize(mean, std)
+])
+
+t_img = transform_norm(f_img)
+
+mean, std = t_img.mean([1, 2]), t_img.std([1, 2])
+
+print(mean, std)
 # print(f_img.shape)
 
 Hpts = h4pt.flatten()
@@ -44,7 +61,7 @@ Hpts = h4pt.flatten()
 
 pred = dlt(Hpts, Ca)
 
-print(pred)
+# print(pred)
 
 # A = []
 # B = []
@@ -66,7 +83,7 @@ print(pred)
 
 # print(H_new)
 
-# out2 = cv2.warpPerspective(out, H_new, (700, 700))
+out2 = cv2.warpPerspective(img, np.linalg.pinv(pred), (700, 700))
 
 # cv2.imshow('img3', Pa)
 # cv2.imshow('img4', Pb)

@@ -22,8 +22,8 @@ import torch
 import torchvision
 from torch.utils.tensorboard import SummaryWriter
 from torchvision import datasets, transforms
-from torch.optim import Adam
-from Network.Network import HomographyModel, LossFn
+from torch.optim import Adam, lr_scheduler
+from Network.Network import HomographyModel, LossFn, photo_loss, DLT
 import cv2
 import sys
 import os
@@ -113,7 +113,7 @@ def GenerateBatch(BasePath, DirNamesTrain, MiniBatchSize):
 
         # print(torch.stack(I1Batch).size())
 
-    return torch.stack(I1Batch).to(device), torch.stack(CoordinatesBatch).to(device)
+    return torch.stack(I1Batch).to(device), torch.stack(CoordinatesBatch).to(device), Ca
 
 
 def PrettyPrint(NumEpochs, DivTrain, MiniBatchSize, NumTrainSamples, LatestFile):
@@ -168,7 +168,12 @@ def TrainOperation(
     ###############################################
     # Fill your optimizer of choice here!
     ###############################################
-    Optimizer = Adam(model.parameters(), lr=0.01)
+    if ModelType == 'Unsup':
+        Optimizer = Adam(model.parameters(), lr=0.0001)
+    else:
+        Optimizer = Adam(model.parameters(), lr=0.01)
+
+    sched = lr_scheduler.MultiStepLR(Optimizer, milestones=[2, 4, 6, 8], gamma=0.5)
 
     # Tensorboard
     # Create a summary to monitor loss tensor
@@ -189,13 +194,23 @@ def TrainOperation(
     for Epochs in tqdm(range(StartEpoch, NumEpochs)):
         NumIterationsPerEpoch = int(NumTrainSamples / MiniBatchSize / DivTrain)
         for PerEpochCounter in tqdm(range(NumIterationsPerEpoch)):
-            I1Batch, CoordinatesBatch = GenerateBatch(
+            I1Batch, CoordinatesBatch, Ca = GenerateBatch(
                 BasePath, DirNamesTrain, MiniBatchSize
             )
             model.train()
             # Predict output with forward pass
+            # torch.onnx.export(model, I1Batch, 'model.onnx')
             PredicatedCoordinatesBatch = model(I1Batch)
-            LossThisBatch = LossFn(PredicatedCoordinatesBatch, CoordinatesBatch)
+            h = PredicatedCoordinatesBatch
+
+            if ModelType == 'Unsup':
+                H_mat = DLT(h, Ca)
+                LossThisBatch = photo_loss(H_mat, I1Batch)
+                # print(LossThisBatch)
+                # LossThisBatch = Variable()
+
+            else:
+                LossThisBatch = LossFn(PredicatedCoordinatesBatch, CoordinatesBatch)
             print("Loss:", LossThisBatch)
 
             Optimizer.zero_grad()
@@ -227,16 +242,27 @@ def TrainOperation(
             model.eval()
             with torch.no_grad():
                 # print(validation_set_image_names)
-                val_batch, val_labels = GenerateBatch(
+                val_batch, val_labels, Ca_val = GenerateBatch(
                     BasePath, DirNamesVal, MiniBatchSize
                 )
 
-            result = model.validation_step(val_batch, val_labels)
+            if ModelType == 'Unsup':
+                h_pred = model(val_batch)
+                H_val = DLT(h_pred, Ca_val)
+                val_loss = photo_loss(H_val, val_batch)
+                print('Val Loss:', val_loss)
+            else:
+                result = model.validation_step(val_batch, val_labels)
 
             # Tensorboard
             Writer.add_scalar(
-                "LossEveryIter",
-                result["val_loss"],
+                "ValLossEveryIter",
+                (val_loss if ModelType == 'Unsup' else result["val_loss"]),
+                Epochs * NumIterationsPerEpoch + PerEpochCounter,
+            )
+            Writer.add_scalar(
+                "TrainLossEveryIter",
+                LossThisBatch.item(),
                 Epochs * NumIterationsPerEpoch + PerEpochCounter,
             )
             # If you don't flush the tensorboard doesn't update until a lot of iterations!
@@ -253,6 +279,7 @@ def TrainOperation(
             },
             SaveName,
         )
+        sched.step()
         print("\n" + SaveName + " Model Saved...")
 
 
@@ -284,7 +311,7 @@ def main():
     Parser.add_argument(
         "--NumEpochs",
         type=int,
-        default=500,
+        default=10,
         help="Number of Epochs to Train for, Default:50",
     )
     Parser.add_argument(
@@ -296,7 +323,7 @@ def main():
     Parser.add_argument(
         "--MiniBatchSize",
         type=int,
-        default=16,
+        default=20,
         help="Size of the MiniBatch to use, Default:1",
     )
     Parser.add_argument(

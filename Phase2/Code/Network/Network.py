@@ -21,7 +21,7 @@ import kornia  # You can use this to get the transform and warp in this project
 
 # Don't generate pyc codes
 sys.dont_write_bytecode = True
-
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 def LossFn(out, labels):
     ###############################################
@@ -36,18 +36,40 @@ def LossFn(out, labels):
     loss = criterion(out, labels)
     return loss
 
-def LossFnUnsup(H, Pa, Pb):
+def photo_loss(H, Ia):
 
-    wPa = cv2.warpPerspective(Pa, H, Pa.shape)
-    loss = np.linalg.norm(wPa-Pb)
+    img_ht = Ia.shape[1]
+    img_wth = Ia.shape[2]
+
+    M = torch.tensor([[img_wth/2, 0, img_wth/2],
+                  [0, img_ht/2, img_ht/2],
+                  [0, 0, 1]]).to(device)
+    
+    Hinv = torch.inverse(M) @ torch.inverse(H) @ M
+    Hinv = Hinv.cpu().detach().numpy()
+
+    wPa_f = []
+    Pb_f = []
+    for i in range(Ia.size()[0]):
+        Pa = Ia[i, :, :, 0].cpu().detach().numpy()
+        Pb = Ia[i, :, :, 1].cpu().detach().numpy()
+        wPa = cv2.warpPerspective(Pa, Hinv[i], Pb.shape)
+        wPa_f.append(wPa)
+        Pb_f.append(Pb)
+
+    wPa_f = torch.tensor(wPa_f, requires_grad=True).to(device)
+    Pb_f = torch.tensor(Pb_f, requires_grad=True).to(device)
+
+    criterion = nn.L1Loss()
+    loss = criterion(wPa_f, Pb_f)
     return loss
 
 class HomographyModel(pl.LightningModule):
     def __init__(self):
         super(HomographyModel, self).__init__()
         # self.hparams = hparams
-        self.model = Net_Sup()
-        # torch.save(self.model.state_dict(), 'model.pt')
+        self.model = Net()
+        # torch.save(self.model.state_dict(), 'model.pth')
 
     def forward(self, a):
         return self.model(a)
@@ -71,35 +93,6 @@ class HomographyModel(pl.LightningModule):
         logs = {"val_loss": avg_loss}
         return {"avg_val_loss": avg_loss, "log": logs}
 
-class UnsupModel(pl.LightningModule):
-    def __init__(self):
-        super(UnsupModel, self).__init__()
-        # self.hparams = hparams
-        self.model = Net_Unsup()
-        # torch.save(self.model.state_dict(), 'model.pt')
-
-    def forward(self, a):
-        return self.model(a)
-
-    def training_step(self, batch, batch_idx):
-        img_a, patch_a, patch_b, corners, gt = batch
-        delta = self.model(patch_a, patch_b)
-        loss = LossFnUnsup(delta, img_a, patch_b, corners)
-        logs = {"loss": loss}
-        return {"loss": loss, "log": logs}
-
-    def validation_step(self, H, Pa, Pb):
-        # img_a, patch_a, patch_b, corners, gt = batch
-        # delta = self.model(imgs)
-        loss = LossFnUnsup(H, Pa, Pb)
-        print("Validation loss:", loss)
-        return {"val_loss": loss}
-
-    def validation_epoch_end(self, outputs):
-        avg_loss = torch.stack([x["val_loss"] for x in outputs]).mean()
-        logs = {"val_loss": avg_loss}
-        return {"avg_val_loss": avg_loss, "log": logs}
-
 def conv(in_c, out_c):
 
     return nn.Sequential(
@@ -110,36 +103,46 @@ def conv(in_c, out_c):
 
 def stack_A(u, v, up, vp):
 
-    arr = np.array([[0, 0, 0, -u, -v, -1, u*vp, v*vp],
+    arr = torch.tensor([[0, 0, 0, -u, -v, -1, u*vp, v*vp],
                     [u, v, 1, 0, 0, 0, -u*up, -v*up]])
 
     return arr
 
-def dlt(h4pt, Ca):
+def DLT(h4pt_batch, Ca):
+    # print(h4pt_batch.size())
 
-    Cb = np.add(Ca, h4pt.reshape(4, 2))
+    # h4pt_batch = h4pt_batch.detach().numpy()
+    H_mat = []
 
-    A = []
-    B = []
+    for i in range(h4pt_batch.shape[0]):
 
-    for i in range(4):
-        Ai = stack_A(Ca[i][0], Ca[i][1], Cb[i][0], Cb[i][1])
-        A.append(Ai)
+        h4pt = h4pt_batch[i, :]
 
-        Bi = [-Cb[i][1], Cb[i][0]]
-        B.append(Bi)
+        Cb = torch.add(torch.tensor(Ca).to(device), h4pt.view(torch.Size([4, 2])))
 
-    A = np.array(A).reshape((-1, 8))
-    B = np.array(B).reshape(8, 1)
+        A = []
+        B = []
 
-    H_new = np.linalg.pinv(A) @ B
+        for i in range(4):
+            Ai = stack_A(Ca[i][0], Ca[i][1], Cb[i][0], Cb[i][1])
+            A.append(Ai)
 
-    H_new = np.append(H_new, 1)
-    H_new = H_new.reshape((3,3))
+            Bi = [-Cb[i][1], Cb[i][0]]
+            B.extend(Bi)
 
-    return H_new
+        A = torch.stack(A).view(torch.Size([8, 8])).to(device)
+        B = torch.tensor(B).to(device)
 
-class Net_Sup(nn.Module):
+        H_new = torch.inverse(A) @ B
+
+        H_new = torch.cat((H_new, torch.tensor([1]).to(device))).to(device)
+        H_new = H_new.view(torch.Size([3, 3]))
+
+        H_mat.append(H_new)
+
+    return torch.stack(H_mat).to(device)
+
+class Net(nn.Module):
     def __init__(self):
         """
         Inputs:
@@ -191,53 +194,3 @@ class Net_Sup(nn.Module):
         out = self.fc2(x)
 
         return out
-
-class Net_Unsup(nn.Module):
-    def __init__(self):
-        """
-        Inputs:
-        InputSize - Size of the Input
-        OutputSize - Size of the Output
-        """
-        super().__init__()
-
-        #############################
-        # You will need to change the input size and output
-        # size for your Spatial transformer network layer!
-        #############################
-        # Spatial transformer localization-network
-        self.localization = nn.Sequential(
-            nn.Conv2d(1, 8, kernel_size=7),
-            nn.MaxPool2d(2, stride=2),
-            nn.ReLU(True),
-            nn.Conv2d(8, 10, kernel_size=5),
-            nn.MaxPool2d(2, stride=2),
-            nn.ReLU(True),
-        )
-
-        # Regressor for the 3 * 2 affine matrix
-        self.fc_loc = nn.Sequential(
-            nn.Linear(10 * 3 * 3, 32), nn.ReLU(True), nn.Linear(32, 3 * 2)
-        )
-
-        # Initialize the weights/bias with identity transformation
-        self.fc_loc[2].weight.data.zero_()
-        self.fc_loc[2].bias.data.copy_(
-            torch.tensor([1, 0, 0, 0, 1, 0], dtype=torch.float)
-        )
-
-    def forward(self, x):
-
-        #############################
-        # Fill your network structure of choice here!
-        #############################
-
-        mini_batch_size = x.shape[0]
-        dim_x = x.shape[1]
-        dim_y = x.shape[2]
-        depth = x.shape[3]
-
-        x = x.view(torch.Size([mini_batch_size, depth, dim_x, dim_y]))
-
-
-        return x
