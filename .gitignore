@@ -6,3 +6,4 @@ Phase1/Data
 model.pt
 P1TestSet*
 model.onnx
+Phase2/Code/.vscode

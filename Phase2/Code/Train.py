@@ -294,7 +294,7 @@ def main():
     Parser = argparse.ArgumentParser()
     Parser.add_argument(
         "--BasePath",
-        default="/home/takud/Downloads/WPI_Homework/RBE549/rmnagwekar_p1/Phase2/Data",
+        default="../Data",
         help="Base path of images, Default:/home/lening/workspace/rbe549/YourDirectoryID_p1/Phase2/Data",
     )
     Parser.add_argument(

@@ -151,7 +151,7 @@ def TestOperation(ModelPath, TestSet, BasePath, ModelType):
 
 def showImg(img_no, ModelPath, BasePath, ModelType):
 
-    img = cv2.imread('/home/takud/Downloads/WPI_Homework/RBE549/rmnagwekar_p1/Phase2/Data/Test/{}.jpg'.format(img_no))
+    img = cv2.imread('../Data/Test/{}.jpg'.format(img_no))
     h4pt_og, h4pt_pred, Hab, Ca = TestOperation(ModelPath, ['Test/{}'.format(img_no)], BasePath, ModelType)
 
     # print(h4pt_og.reshape((4,2)).shape, Ca.shape)
@@ -183,7 +183,7 @@ def main():
     Parser.add_argument(
         "--ModelPath",
         dest="ModelPath",
-        default="/home/takud/Downloads/WPI_Homework/RBE549/rmnagwekar_p1/Checkpoints/Unsup1.ckpt",
+        default="../../Checkpoints/Sup2.ckpt",
         help="Path to load latest model from, Default:ModelPath",
     )
     Parser.add_argument(
@@ -200,7 +200,7 @@ def main():
     )
     Parser.add_argument(
         "--ModelType",
-        default="Unsup",
+        default="Sup",
         help="Model type, Supervised or Unsupervised? Choose from Sup and Unsup, Default:Unsup",
     )
 
@@ -211,7 +211,7 @@ def main():
 
     DirNamesTest = [('Test/'+ str(x)) for x in range(1,1001)]
     TestOperation(ModelPath, DirNamesTest, BasePath, ModelType)
-    # showImg(999, ModelPath, BasePath, ModelPath)
+    # showImg(317, ModelPath, BasePath, ModelPath)
 
 if __name__ == "__main__":
     main()
