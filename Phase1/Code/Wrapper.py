@@ -23,17 +23,8 @@ import random
 from skimage.feature import peak_local_max
 import os
 
-# Add any python libraries here
 
-
-def main():
-    # Add any Command Line arguments here
-    # Parser = argparse.ArgumentParser()
-    # Parser.add_argument('--NumFeatures', default=100, help='Number of best features to extract from each image, Default:100')
-
-    # Args = Parser.parse_args()
-    # NumFeatures = Args.NumFeatures
-
+def read_images():
     # """
     # Read a set of images for Panorama stitching
     # """
@@ -42,9 +33,8 @@ def main():
 
 	images = []
 	images_path = []
-	for i in range(9):
-
-		images_path.append("../Data/Train/Set1/"+str(i+1)+".jpg")
+	for i in range(3):
+		images_path.append("Phase1/Code/Data/Train/Set1/"+str(i+1)+".jpg")
 		# images_path.append("../Data/Train/Set2/"+str(i+1)+".jpg")
 		# images_path.append("../Data/Train/Set3/"+str(i+1)+".jpg")
 
@@ -81,8 +71,6 @@ def corner_detect(image):
 	cv2.waitKey(0)
 	cv2.imwrite("corers.png",temp)
 	return corner 
-
-
 
     # """
 	# Perform ANMS: Adaptive Non-Maximal Suppression
@@ -150,11 +138,7 @@ def feature(image,Nbest,best_coordinate,patch_size):
 			var=0.0000001
 		vector = (vector-vector.mean())/var
 		features_des.append(vector)
-	cv2.imshow('img' ,features_des)
-	cv2.waitKey(0)
-	cv2.imwrite("FD.png",features_des)
 	return features_des       
-  
 
 
     # """
@@ -203,8 +187,6 @@ def draw_matches(img1, img2 ,pair1, pair2, Match):
 	output = cv2.drawMatches(temp_img1, keypoints1, temp_img2, keypoints2, matches1to2, None,matchColor=(255,255,0))
 	return(output)
 
-
-
     # """
 	# Refine: RANSAC, Estimate Homography
 	# """
@@ -215,7 +197,6 @@ def perspective(pair1, pair2):
 	homo_matrix  = cv2.getPerspectiveTransform(pair_1, pair_2)
 	return homo_matrix
   
-
 
 def RANSAC(Match, threshold, Nmax, pair1, pair2):
     pair1= np.array(pair1)
@@ -256,99 +237,10 @@ def RANSAC(Match, threshold, Nmax, pair1, pair2):
     h_best,_= cv2.findHomography(np.float32(new_pair1),np.float32(new_pair2))
     return h_best, new_Match, new_pair1, new_pair2
 
-
     # """
 	# Image Warping + Blending
 	# Save Panorama output as mypano.png
 	# """
-
-
-def stitch_img(image1 ,image2, h_best):
-    new_h = np.array([h_best[1,:],h_best[0,:],h_best[2,:]]).T
-    neww = np.array([new_h[1,:],new_h[0,:],new_h[2,:]]).T
-    h_best=neww
-    height_1, width_1,_= np.shape(image1)
-    height_2,width_2,_ = np.shape(image2)
-    pt1 = np.array([[0, width_1, width_1, 0], [0, 0, height_1, height_1], [1, 1, 1, 1]])
-    p_prime = np.dot(h_best, pt1)
-    p_primexy = p_prime / p_prime[2]
-    x_row = p_primexy[0]
-    y_row = p_primexy[1]
-    ymin = min(y_row)
-    xmin = min(x_row)
-    ymax = max(y_row)
-    xmax = max(x_row)
-    newh = np.array([[1, 0, -1 * xmin], [0, 1, -1 * ymin], [0, 0, 1]])    # removes offset and multiply by homography
-
-    size1=int(xmax-xmin+width_2)
-    size2=int(ymax-ymin+height_2) 
-    
-    size = (size1,size2)
-    warped_image = cv2.warpPerspective(image1, newh.dot(h_best), dsize=size)    #Warpigng
-    w_x,w_y,_ = warped_image.shape
-    xs = 0
-    ys = 0 
-    if xmin>0:
-      xs = int(xmin)
-      xmin = 0
-    if ymin>0:
-      ys = int(ymin)
-      ymin = 0
-    new_warped = np.zeros((ys + w_x,xs + w_y,3))
-    new_warped = new_warped.astype(np.uint8)
-    new_warped[ys:ys + w_x,xs:xs + w_y,:] = warped_image
-    return new_warped, int(xmin), int(ymin)
-  
-
-def blending(images):
-    img1 = images[0]
-    for i in images[1:]:
-        H,_,_,_ = Find_Homography(img1,i)
-        temp_save,y_min,x_min = stitch_img(img1,i,H)
-        new2 = np.zeros(temp_save.shape)
-        new2[abs(x_min):abs(x_min)+i.shape[0],abs(y_min):i.shape[1]+abs(y_min)] = i
-        final = temp_save*0.5 + new2*0.5
-        final=final.astype(np.uint8)
-        
-        x = temp_save.shape[0]
-        y = temp_save.shape[1]
-        for i in range(x):
-          for j in range(y):
-            if np.sum(temp_save[i,j,:])==0:
-              final[i,j,:]=new2[i,j,:]
-            if np.sum(new2[i,j,:])==0:
-              final[i,j,:]=temp_save[i,j,:]
-        img1 = final
-        cv2.imshow('img' ,img1)
-        cv2.waitKey(0)
-    panorama= img1
-    cv2.imshow('img' ,panorama)
-    cv2.waitKey(0)
-    return panorama
-
-
-#######################################
-
-##Without Blending
-
-def blending(images):
-    img1 = images[1]
-    for i in images[2:9]:
-        H,_,_,_ = Find_Homography(img1,i)
-        temp_save,y_min,x_min = stitch_img(img1,i,H)
-
-        temp_save[abs(x_min):abs(x_min)+i.shape[0],abs(y_min):i.shape[1]+abs(y_min)] = i
-        img1 = temp_save
-        cv2.imshow('img' ,img1)
-        cv2.waitKey(0)
-    panorama= img1
-    cv2.imshow('img' ,panorama)
-    cv2.waitKey(0)
-    cv2.imwrite("panorama.png", panorama)
-    return panorama
-
-########################################
-
 
 def Find_Homography(img1,img2):
 	corner= corner_detect(img1)
@@ -375,11 +267,75 @@ def Find_Homography(img1,img2):
 		print("Number of matched pairs is less than 4, insufficient to compute homography matrix.")
 		return
 	return h_best,new_match,new_pair1, new_pair2
+
+
+def stitch_img(image1 ,image2, h_best):
+    new_h = np.array([h_best[1,:],h_best[0,:],h_best[2,:]]).T
+    neww = np.array([new_h[1,:],new_h[0,:],new_h[2,:]]).T
+    h_best=neww
+    height_1, width_1,_= np.shape(image1)
+    height_2,width_2,_ = np.shape(image2)
+    pt1 = np.array([[0, width_1, width_1, 0], [0, 0, height_1, height_1], [1, 1, 1, 1]])
+    p_prime = np.dot(h_best, pt1)
+    p_primexy = p_prime / p_prime[2]
+    x_row = p_primexy[0]
+    y_row = p_primexy[1]
+    ymin = min(y_row)
+    xmin = min(x_row)
+    ymax = max(y_row)
+    xmax = max(x_row)
+    newh = np.array([[1, 0, -1 * xmin], [0, 1, -1 * ymin], [0, 0, 1]])
 	
-images=main()
-autopano=blending(images)
+    size = (int(max(xmax,width_2-xmin)),int(max(ymax,height_2-ymin)))
+    warped_image = cv2.warpPerspective(image1, newh.dot(h_best), dsize=size)    # Warping
+    cv2.imshow('img', warped_image)
+    cv2.waitKey(0)
+    w_x,w_y,_ = warped_image.shape
+    xs = 0
+    ys = 0 
+    if xmin>0:
+      xs = int(xmin)
+      xmin = 0
+    if ymin>0:
+      ys = int(ymin)
+      ymin = 0
+    new_warped = np.zeros((ys + w_x, xs + w_y, 3))
+    new_warped = new_warped.astype(np.uint8)
+    new_warped[ys:ys + w_x,xs:xs + w_y,:] = warped_image
+    return new_warped, int(xmin), int(ymin)
+	
+
+def blending(images):
+    img1 = images[0]
+    for i in images[1:2]:# 
+        H,_,_,_ = Find_Homography(i, img1)
+        temp_save, x_min, y_min = stitch_img(i,img1,H)
+        new2 = np.zeros(temp_save.shape)
+        new2[abs(y_min):abs(y_min) + img1.shape[0], abs(x_min):img1.shape[1] + abs(x_min)] = img1
+        final = temp_save*0.5 + new2*0.5
+        final=final.astype(np.uint8)
+        
+        x = temp_save.shape[0]
+        y = temp_save.shape[1]
+        for i in range(x):
+          for j in range(y):
+            if np.sum(temp_save[i,j,:])==0:
+              final[i,j,:]=new2[i,j,:]
+            if np.sum(new2[i,j,:])==0:
+              final[i,j,:]=temp_save[i,j,:]
+        img1 = final
+        cv2.imshow('img' ,img1)
+        cv2.waitKey(0)
+    panorama= img1
+    cv2.imshow('img' ,panorama)
+    cv2.waitKey(0)
+    cv2.imwrite("mypano.png",panorama)
+    return panorama
+
+
+def main():
+	images = read_images()
+	blending(images)
 
 if __name__ == "__main__":
-    main()
-
- 
+	main()
