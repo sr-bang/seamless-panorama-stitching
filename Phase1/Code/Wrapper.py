@@ -307,7 +307,7 @@ def stitch_img(image1 ,image2, h_best):
 
 def blending(images):
     img1 = images[0]
-    for i in images[1:2]:# 
+    for i in images[1:3]:# 
         H,_,_,_ = Find_Homography(i, img1)
         temp_save, x_min, y_min = stitch_img(i,img1,H)
         new2 = np.zeros(temp_save.shape)
